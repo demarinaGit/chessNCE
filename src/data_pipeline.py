@@ -63,13 +63,28 @@ def board_to_aux(board: chess.Board) -> np.ndarray:
     return aux
 
 
+def _get_elo(game: chess.pgn.Game) -> tuple[int, int]:
+    """Extract WhiteElo and BlackElo from game headers, defaulting to 0."""
+    try:
+        white_elo = int(game.headers.get("WhiteElo", "0"))
+    except ValueError:
+        white_elo = 0
+    try:
+        black_elo = int(game.headers.get("BlackElo", "0"))
+    except ValueError:
+        black_elo = 0
+    return white_elo, black_elo
+
+
 def extract_samples_from_game(game: chess.pgn.Game) -> list[dict]:
     """Extract (board, actual_move, random_move) pairs from a single game.
 
     Returns a list of dicts, each with:
-        board_tensor, aux, from_sq, to_sq, label
+        board_tensor, aux, from_sq, to_sq, label, elo
     Two entries per position: label=1 for actual move, label=0 for random.
+    elo is the rating of the player whose turn it is.
     """
+    white_elo, black_elo = _get_elo(game)
     samples = []
     board = game.board()
     for move in game.mainline_moves():
@@ -81,6 +96,7 @@ def extract_samples_from_game(game: chess.pgn.Game) -> list[dict]:
 
         tensor = board_to_tensor(board)
         aux = board_to_aux(board)
+        elo = white_elo if board.turn == chess.WHITE else black_elo
 
         # Positive sample: actual move
         samples.append({
@@ -89,6 +105,7 @@ def extract_samples_from_game(game: chess.pgn.Game) -> list[dict]:
             "from_sq": move.from_square,
             "to_sq": move.to_square,
             "label": 1,
+            "elo": elo,
         })
 
         # Negative sample: random legal move (excluding actual move)
@@ -100,6 +117,7 @@ def extract_samples_from_game(game: chess.pgn.Game) -> list[dict]:
             "from_sq": neg_move.from_square,
             "to_sq": neg_move.to_square,
             "label": 0,
+            "elo": elo,
         })
 
         board.push(move)
@@ -116,10 +134,12 @@ def save_chunk(samples: list[dict], chunk_idx: int, output_dir: Path) -> Path:
     from_sqs = np.array([s["from_sq"] for s in samples], dtype=np.int64)
     to_sqs = np.array([s["to_sq"] for s in samples], dtype=np.int64)
     labels = np.array([s["label"] for s in samples], dtype=np.float32)
+    elos = np.array([s["elo"] for s in samples], dtype=np.int32)
 
     path = output_dir / f"chunk_{chunk_idx:04d}.npz"
     np.savez_compressed(path, boards=boards, auxs=auxs,
-                        from_sqs=from_sqs, to_sqs=to_sqs, labels=labels)
+                        from_sqs=from_sqs, to_sqs=to_sqs, labels=labels,
+                        elos=elos)
     return path
 
 
