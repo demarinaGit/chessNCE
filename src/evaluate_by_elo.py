@@ -30,6 +30,11 @@ def load_test_chunks_with_elo(cfg: Config) -> dict[str, np.ndarray]:
     return {k: np.concatenate(v) for k, v in arrays.items()}
 
 
+def piece_count(boards: np.ndarray) -> np.ndarray:
+    """Count total pieces on each board. boards shape: (N, 12, 8, 8)."""
+    return boards.sum(axis=(1, 2, 3)).astype(np.int32)
+
+
 @torch.no_grad()
 def predict(model, boards, auxs, from_sqs, to_sqs, device, batch_size=1024):
     """Run model and return probabilities."""
@@ -51,6 +56,7 @@ def evaluate_by_elo(
     checkpoint_path: str | Path | None = None,
     cfg: Config | None = None,
     n_buckets: int = 10,
+    min_captured: int = 0,
 ) -> None:
     if cfg is None:
         cfg = get_config()
@@ -71,6 +77,18 @@ def evaluate_by_elo(
     labels = data["labels"]
     elos = data["elos"]
     print(f"Test samples: {len(labels)}, ELO range: {elos.min()}–{elos.max()}")
+
+    # Filter out positions where fewer than min_captured pieces have been taken
+    if min_captured > 0:
+        pieces = piece_count(data["boards"])
+        captured = 32 - pieces
+        keep = captured >= min_captured
+        n_dropped = (~keep).sum()
+        print(f"Dropping {n_dropped} samples with fewer than {min_captured} pieces captured")
+        for k in data:
+            data[k] = data[k][keep]
+        labels = data["labels"]
+        elos = data["elos"]
 
     # Filter out samples with missing ELO (0)
     valid = elos > 0
@@ -186,4 +204,6 @@ def _plot_elo_metrics(results, overall_auc, overall_acc, plot_dir):
 
 
 if __name__ == "__main__":
-    evaluate_by_elo()
+    import sys
+    min_cap = int(sys.argv[1]) if len(sys.argv) > 1 else 0
+    evaluate_by_elo(min_captured=min_cap)
