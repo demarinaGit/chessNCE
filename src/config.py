@@ -8,12 +8,13 @@ from pathlib import Path
 class DataConfig:
     raw_dir: Path = Path("data/raw")
     processed_dir: Path = Path("data/processed")
-    max_games: int = 100_000
+    max_games: int = 0  # 0 = no limit (process entire PGN)
     train_ratio: float = 0.8
     val_ratio: float = 0.1
     test_ratio: float = 0.1
     chunk_size: int = 50_000  # positions per .npz chunk
     random_seed: int = 42
+    num_pipeline_workers: int = 8  # parallel PGN processing workers
 
 
 @dataclass
@@ -36,11 +37,11 @@ class ModelConfig:
 
 @dataclass
 class TrainConfig:
-    batch_size: int = 1024
+    batch_size: int = 2048
     lr: float = 1e-3
     weight_decay: float = 1e-4
-    epochs: int = 20
-    patience: int = 5  # early stopping patience
+    epochs: int = 10
+    patience: int = 3  # early stopping patience
     checkpoint_dir: Path = Path("checkpoints")
     random_seed: int = 42
     num_workers: int = 4

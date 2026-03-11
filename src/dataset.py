@@ -1,4 +1,9 @@
-"""PyTorch Dataset for loading preprocessed chess position chunks."""
+"""PyTorch Dataset for loading preprocessed chess position chunks.
+
+Uses lazy loading: chunk data is only loaded from disk when first accessed,
+not at initialization. This allows scaling to hundreds of thousands of chunks
+without exhausting RAM.
+"""
 
 from pathlib import Path
 
@@ -10,26 +15,37 @@ from .config import DataConfig, TrainConfig, get_config
 
 
 class ChessChunkDataset(Dataset):
-    """Dataset backed by a single .npz chunk file."""
+    """Dataset backed by a single .npz chunk file (lazy-loaded)."""
 
     def __init__(self, npz_path: str | Path):
-        data = np.load(npz_path)
-        self.boards = data["boards"]      # (N, 12, 8, 8)
-        self.auxs = data["auxs"]          # (N, 13)
-        self.from_sqs = data["from_sqs"]  # (N,)
-        self.to_sqs = data["to_sqs"]      # (N,)
-        self.labels = data["labels"]      # (N,)
+        self.npz_path = Path(npz_path)
+        self._data = None
+        # Read only the length without loading full arrays
+        with np.load(self.npz_path) as data:
+            self._length = len(data["labels"])
+
+    def _load(self):
+        if self._data is None:
+            data = np.load(self.npz_path)
+            self._data = {
+                "boards": data["boards"],
+                "auxs": data["auxs"],
+                "from_sqs": data["from_sqs"],
+                "to_sqs": data["to_sqs"],
+                "labels": data["labels"],
+            }
 
     def __len__(self) -> int:
-        return len(self.labels)
+        return self._length
 
     def __getitem__(self, idx: int):
+        self._load()
         return (
-            torch.from_numpy(self.boards[idx]),
-            torch.from_numpy(self.auxs[idx]),
-            torch.tensor(self.from_sqs[idx], dtype=torch.long),
-            torch.tensor(self.to_sqs[idx], dtype=torch.long),
-            torch.tensor(self.labels[idx], dtype=torch.float32),
+            torch.from_numpy(self._data["boards"][idx]),
+            torch.from_numpy(self._data["auxs"][idx]),
+            torch.tensor(self._data["from_sqs"][idx], dtype=torch.long),
+            torch.tensor(self._data["to_sqs"][idx], dtype=torch.long),
+            torch.tensor(self._data["labels"][idx], dtype=torch.float32),
         )
 
 
